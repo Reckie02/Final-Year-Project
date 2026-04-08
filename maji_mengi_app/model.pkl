@@ -1,0 +1,15 @@
+import pickle
+
+# Save the model and encoders
+with open('model.pkl', 'w+b') as f:
+    pickle.dump(rf_model, f)
+
+with open('encoders.pkl', 'w+b') as f:
+    pickle.dump({
+        'le_type':   le_type,
+        'le_loc':    le_loc,
+        'le_status': le_status
+    }, f)
+
+print("✅ Saved model.pkl and encoders.pkl")
+print("   Copy both files into your maji_mengi_app/ folder")

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maji Mengi — Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --blue:   #1a5276; --blue-l: #2980b9;
+      --green:  #1e8449; --green-l:#27ae60;
+      --red:    #922b21; --red-l:  #e74c3c;
+      --orange: #d35400; --orange-l:#f39c12;
+      --bg:     #f0f4f8; --white: #ffffff;
+      --text:   #1a202c; --muted: #718096;
+      --border: #e2e8f0; --radius: 12px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:Arial,sans-serif; background:var(--bg);
+           color:var(--text); font-size:14px; }
+
+    /* NAV */
+    nav { background:var(--blue); display:flex; align-items:center;
+          padding:0 28px; height:56px; gap:32px; }
+    nav .brand { color:#fff; font-size:16px; font-weight:bold;
+                 display:flex; align-items:center; gap:8px; }
+    nav a { color:rgba(255,255,255,0.75); text-decoration:none;
+            font-size:13px; padding:6px 0;
+            border-bottom:2px solid transparent; transition:.2s; }
+    nav a.active, nav a:hover { color:#fff; border-bottom-color:#fff; }
+    nav .spacer { flex:1; }
+    nav .badge { background:var(--blue-l); color:#fff; font-size:11px;
+                 padding:3px 10px; border-radius:20px; }
+
+    /* FILTERS */
+    .filter-bar { background:var(--white); border-bottom:1px solid var(--border);
+                  padding:12px 28px; display:flex; gap:16px;
+                  align-items:center; flex-wrap:wrap; }
+    .filter-bar label { font-size:12px; font-weight:bold;
+                        color:var(--muted); text-transform:uppercase;
+                        letter-spacing:.5px; margin-right:6px; }
+    .filter-bar select {
+      padding:7px 12px; border:1px solid var(--border);
+      border-radius:8px; font-size:13px; background:var(--bg);
+      color:var(--text); cursor:pointer; transition:.2s; }
+    .filter-bar select:focus { outline:none; border-color:var(--blue-l);
+      box-shadow:0 0 0 3px rgba(41,128,185,0.15); }
+    .filter-bar .reset-btn {
+      margin-left:auto; padding:7px 16px; background:transparent;
+      border:1px solid var(--border); border-radius:8px;
+      font-size:12px; cursor:pointer; color:var(--muted); transition:.2s; }
+    .filter-bar .reset-btn:hover { background:var(--bg); color:var(--text); }
+
+    /* CARDS */
+    .cards { display:grid;
+             grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+             gap:14px; padding:20px 28px 0; }
+    .card { background:var(--white); border-radius:var(--radius);
+            padding:18px 16px; border-left:4px solid var(--blue-l);
+            box-shadow:0 1px 4px rgba(0,0,0,.06); }
+    .card.green  { border-left-color:var(--green-l); }
+    .card.red    { border-left-color:var(--red-l); }
+    .card.orange { border-left-color:var(--orange-l); }
+    .card.teal   { border-left-color:#16a085; }
+    .card.purple { border-left-color:#8e44ad; }
+    .card-val   { font-size:24px; font-weight:bold; color:var(--blue); }
+    .card.green  .card-val { color:var(--green); }
+    .card.red    .card-val { color:var(--red); }
+    .card.orange .card-val { color:var(--orange); }
+    .card.teal   .card-val { color:#16a085; }
+    .card.purple .card-val { color:#6c3483; }
+    .card-lbl { font-size:11px; color:var(--muted); margin-top:4px;
+                text-transform:uppercase; letter-spacing:.4px; }
+    .card-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+
+    /* CHARTS GRID */
+    .charts { display:grid;
+              grid-template-columns:repeat(auto-fit,minmax(400px,1fr));
+              gap:18px; padding:18px 28px 28px; }
+    .chart-box { background:var(--white); border-radius:var(--radius);
+                 padding:20px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+    .chart-box.wide { grid-column:1/-1; }
+    .chart-title { font-size:13px; font-weight:bold; color:var(--blue);
+                   margin-bottom:14px; padding-bottom:10px;
+                   border-bottom:1px solid var(--border); }
+    canvas { max-height:260px; }
+
+    footer { text-align:center; padding:14px; font-size:11px;
+             color:var(--muted); border-top:1px solid var(--border);
+             background:var(--white); }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="brand">💧 Maji Mengi Analytics</div>
+  <a href="/" class="active">Dashboard</a>
+  <a href="/predict">Risk Predictor</a>
+  <div class="spacer"></div>
+  <span class="badge">BSIT/567J/2021</span>
+</nav>
+
+<div class="filter-bar">
+  <div>
+    <label>Province</label>
+    <select id="fProvince" onchange="updateAll()">
+      <option value="All">All Provinces</option>
+    </select>
+  </div>
+  <div>
+    <label>Month</label>
+    <select id="fMonth" onchange="updateAll()">
+      <option value="All">All Months</option>
+    </select>
+  </div>
+  <div>
+    <label>Hour of Day</label>
+    <select id="fHour" onchange="updateAll()">
+      <option value="All">All Hours</option>
+    </select>
+  </div>
+  <button class="reset-btn" onclick="resetFilters()">↺ Reset Filters</button>
+</div>
+
+<div class="cards">
+  <div class="card">
+    <div class="card-val" id="cTotal">—</div>
+    <div class="card-lbl">Total Records</div>
+  </div>
+  <div class="card green">
+    <div class="card-val" id="cFunc">—</div>
+    <div class="card-lbl">Functional</div>
+    <div class="card-sub" id="cFuncPct"></div>
+  </div>
+  <div class="card red">
+    <div class="card-val" id="cNonFunc">—</div>
+    <div class="card-lbl">Non-Functional</div>
+    <div class="card-sub" id="cNonFuncPct"></div>
+  </div>
+  <div class="card orange">
+    <div class="card-val" id="cPartial">—</div>
+    <div class="card-lbl">Partially Functional</div>
+  </div>
+  <div class="card teal">
+    <div class="card-val" id="cQueue">—</div>
+    <div class="card-lbl">Avg Queue (min)</div>
+  </div>
+  <div class="card purple">
+    <div class="card-val" id="cPeople">—</div>
+    <div class="card-lbl">People Served</div>
+  </div>
+</div>
+
+<div class="charts">
+  <div class="chart-box">
+    <div class="chart-title">💧 Status Breakdown</div>
+    <canvas id="chartStatus"></canvas>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">🚰 Water Source Types</div>
+    <canvas id="chartSource"></canvas>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">⏱️ Queue Time by Hour of Day</div>
+    <canvas id="chartHour"></canvas>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">📍 Non-Functional % by Province</div>
+    <canvas id="chartProvince"></canvas>
+  </div>
+  <div class="chart-box wide">
+    <div class="chart-title">📅 Monthly Trend — Non-Functional Rate & Queue Time</div>
+    <canvas id="chartTrend" style="max-height:220px;"></canvas>
+  </div>
+</div>
+
+<footer>
+  Maji Mengi Water Analytics Dashboard &nbsp;|&nbsp;
+  OLUOCH RECKY RACHEL · BSIT/567J/2021 · Technical University of Mombasa
+</footer>
+
+<script>
+  // chart instances
+  const C = {};
+  const fmt = n => n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':String(n);
+  const q   = () => ({
+    province: document.getElementById('fProvince').value,
+    month:    document.getElementById('fMonth').value,
+    hour:     document.getElementById('fHour').value
+  });
+  const qs  = obj => '?'+Object.entries(obj).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
+
+  function kill(key) { if(C[key]){ C[key].destroy(); C[key]=null; } }
+
+  // ── Bootstrap filters ─────────────────────────────────────────
+  async function loadFilters() {
+    const d = await fetch('/api/filters').then(r=>r.json());
+    const ps = document.getElementById('fProvince');
+    d.provinces.forEach(p => { const o=document.createElement('option'); o.value=p; o.textContent=p; ps.appendChild(o); });
+    const ms = document.getElementById('fMonth');
+    d.months.forEach(m => { const o=document.createElement('option'); o.value=m; o.textContent=m; ms.appendChild(o); });
+    const hs = document.getElementById('fHour');
+    for(let h=0;h<24;h++){ const o=document.createElement('option'); o.value=h; o.textContent=`${String(h).padStart(2,'0')}:00`; hs.appendChild(o); }
+  }
+
+  function resetFilters() {
+    ['fProvince','fMonth','fHour'].forEach(id => document.getElementById(id).value='All');
+    updateAll();
+  }
+
+  // ── Cards ─────────────────────────────────────────────────────
+  async function updateCards() {
+    const d = await fetch('/api/summary'+qs(q())).then(r=>r.json());
+    document.getElementById('cTotal').textContent    = fmt(d.total);
+    document.getElementById('cFunc').textContent     = fmt(d.functional);
+    document.getElementById('cNonFunc').textContent  = fmt(d.non_functional);
+    document.getElementById('cPartial').textContent  = fmt(d.partial);
+    document.getElementById('cQueue').textContent    = d.avg_queue;
+    document.getElementById('cPeople').textContent   = fmt(d.people_served);
+    document.getElementById('cFuncPct').textContent    = d.func_pct + '% of total';
+    document.getElementById('cNonFuncPct').textContent = d.nonfunc_pct + '% of total';
+  }
+
+  // ── Status doughnut ───────────────────────────────────────────
+  async function updateStatus() {
+    const d = await fetch('/api/status_breakdown'+qs({province:q().province,month:q().month})).then(r=>r.json());
+    kill('status');
+    C.status = new Chart(document.getElementById('chartStatus'), {
+      type:'doughnut',
+      data:{ labels:Object.keys(d),
+             datasets:[{ data:Object.values(d),
+               backgroundColor:['#27ae60','#e74c3c','#f39c12','#95a5a6'],
+               borderWidth:2, borderColor:'#fff' }] },
+      options:{ plugins:{ legend:{ position:'bottom', labels:{ font:{size:12} } } }, cutout:'60%' }
+    });
+  }
+
+  // ── Source types bar ──────────────────────────────────────────
+  async function updateSource() {
+    const d = await fetch('/api/source_types'+qs({province:q().province,month:q().month})).then(r=>r.json());
+    kill('source');
+    C.source = new Chart(document.getElementById('chartSource'), {
+      type:'bar',
+      data:{ labels:Object.keys(d),
+             datasets:[{ label:'Count', data:Object.values(d),
+               backgroundColor:'#2980b9', borderRadius:5 }] },
+      options:{ plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+    });
+  }
+
+  // ── Queue by hour line ────────────────────────────────────────
+  async function updateHour() {
+    const d = await fetch('/api/queue_by_hour'+qs({province:q().province})).then(r=>r.json());
+    kill('hour');
+    C.hour = new Chart(document.getElementById('chartHour'), {
+      type:'line',
+      data:{ labels:d.hours.map(h=>`${h}:00`),
+             datasets:[{ label:'Avg Queue (min)', data:d.queues,
+               borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,0.08)',
+               tension:0.4, fill:true, pointRadius:4, pointHoverRadius:7 }] },
+      options:{ plugins:{legend:{display:false}},
+                scales:{ y:{beginAtZero:true,title:{display:true,text:'Minutes'}},
+                         x:{title:{display:true,text:'Hour'}} } }
+    });
+  }
+
+  // ── Province comparison ───────────────────────────────────────
+  async function updateProvince() {
+    const d = await fetch('/api/province_comparison'+qs({month:q().month})).then(r=>r.json());
+    d.sort((a,b)=>b.non_func_pct-a.non_func_pct);
+    kill('province');
+    C.province = new Chart(document.getElementById('chartProvince'), {
+      type:'bar',
+      data:{ labels:d.map(x=>x.province_name),
+             datasets:[
+               { label:'Non-Functional %', data:d.map(x=>x.non_func_pct),
+                 backgroundColor:'#e74c3c', borderRadius:4, yAxisID:'y' },
+               { label:'Avg Queue (min)',  data:d.map(x=>x.avg_queue),
+                 backgroundColor:'#f39c12', borderRadius:4, yAxisID:'y1' }
+             ]},
+      options:{ plugins:{legend:{position:'bottom'}},
+                scales:{ y: {beginAtZero:true,position:'left', title:{display:true,text:'Non-Func %'}},
+                         y1:{beginAtZero:true,position:'right',title:{display:true,text:'Queue (min)'},grid:{drawOnChartArea:false}} } }
+    });
+  }
+
+  // ── Monthly trend ─────────────────────────────────────────────
+  async function updateTrend() {
+    const d = await fetch('/api/trend_by_month'+qs({province:q().province})).then(r=>r.json());
+    kill('trend');
+    C.trend = new Chart(document.getElementById('chartTrend'), {
+      type:'line',
+      data:{ labels:d.map(x=>x.month),
+             datasets:[
+               { label:'Non-Functional %', data:d.map(x=>x.non_func_pct),
+                 borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,0.07)',
+                 tension:0.4, fill:true, yAxisID:'y' },
+               { label:'Avg Queue (min)',  data:d.map(x=>x.avg_queue),
+                 borderColor:'#f39c12', borderDash:[5,5], tension:0.4,
+                 yAxisID:'y1', fill:false }
+             ]},
+      options:{ plugins:{legend:{position:'bottom'}},
+                scales:{ y: {beginAtZero:true,position:'left', title:{display:true,text:'Non-Func %'}},
+                         y1:{beginAtZero:true,position:'right',title:{display:true,text:'Queue (min)'},grid:{drawOnChartArea:false}} } }
+    });
+  }
+
+  async function updateAll() {
+    await Promise.all([
+      updateCards(), updateStatus(), updateSource(),
+      updateHour(),  updateProvince(), updateTrend()
+    ]);
+  }
+
+  (async () => { await loadFilters(); await updateAll(); })();
+</script>
+</body>
+</html>

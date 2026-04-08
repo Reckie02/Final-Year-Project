@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maji Mengi — Risk Predictor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --blue:#1a5276; --blue-l:#2980b9; --bg:#f0f4f8;
+      --white:#ffffff; --text:#1a202c; --muted:#718096;
+      --border:#e2e8f0; --radius:12px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:Arial,sans-serif; background:var(--bg);
+           color:var(--text); font-size:14px; }
+
+    nav { background:var(--blue); display:flex; align-items:center;
+          padding:0 28px; height:56px; gap:32px; }
+    nav .brand { color:#fff; font-size:16px; font-weight:bold;
+                 display:flex; align-items:center; gap:8px; }
+    nav a { color:rgba(255,255,255,0.75); text-decoration:none;
+            font-size:13px; padding:6px 0;
+            border-bottom:2px solid transparent; transition:.2s; }
+    nav a.active, nav a:hover { color:#fff; border-bottom-color:#fff; }
+    nav .spacer { flex:1; }
+    nav .badge { background:var(--blue-l); color:#fff; font-size:11px;
+                 padding:3px 10px; border-radius:20px; }
+
+    .page { max-width:900px; margin:32px auto; padding:0 24px; }
+
+    .page-title { font-size:20px; font-weight:bold; color:var(--blue);
+                  margin-bottom:4px; }
+    .page-sub   { color:var(--muted); font-size:13px; margin-bottom:24px; }
+
+    .layout { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+
+    .form-card { background:var(--white); border-radius:var(--radius);
+                 padding:24px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+    .form-card h3 { font-size:14px; color:var(--blue); margin-bottom:18px;
+                    padding-bottom:10px; border-bottom:1px solid var(--border); }
+
+    .field { margin-bottom:16px; }
+    .field label { display:block; font-size:12px; font-weight:bold;
+                   color:var(--muted); text-transform:uppercase;
+                   letter-spacing:.4px; margin-bottom:5px; }
+    .field select, .field input {
+      width:100%; padding:9px 12px; border:1px solid var(--border);
+      border-radius:8px; font-size:13px; background:var(--bg);
+      color:var(--text); transition:.2s; }
+    .field select:focus, .field input:focus {
+      outline:none; border-color:var(--blue-l);
+      box-shadow:0 0 0 3px rgba(41,128,185,0.15); }
+    .field .hint { font-size:11px; color:var(--muted); margin-top:3px; }
+
+    .submit-btn {
+      width:100%; padding:12px; background:var(--blue);
+      color:#fff; border:none; border-radius:8px; font-size:14px;
+      font-weight:bold; cursor:pointer; transition:.2s; margin-top:6px; }
+    .submit-btn:hover { background:var(--blue-l); }
+    .submit-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    /* Result card */
+    .result-card { background:var(--white); border-radius:var(--radius);
+                   padding:24px; box-shadow:0 1px 4px rgba(0,0,0,.06);
+                   display:flex; flex-direction:column; gap:20px; }
+    .result-card h3 { font-size:14px; color:var(--blue);
+                      padding-bottom:10px; border-bottom:1px solid var(--border); }
+
+    .risk-display { text-align:center; padding:20px 0; }
+    .risk-label { font-size:13px; color:var(--muted); margin-bottom:8px; }
+    .risk-value { font-size:48px; font-weight:bold; transition:.4s; }
+    .risk-badge { display:inline-block; padding:6px 20px; border-radius:20px;
+                  font-size:13px; font-weight:bold; margin-top:8px; color:#fff; }
+    .risk-advice { background:var(--bg); border-radius:8px;
+                   padding:14px; font-size:13px; line-height:1.6;
+                   color:var(--text); border-left:4px solid var(--border); }
+
+    .placeholder { display:flex; flex-direction:column;
+                   align-items:center; justify-content:center;
+                   height:100%; color:var(--muted); text-align:center;
+                   padding:40px 20px; gap:12px; }
+    .placeholder .icon { font-size:48px; opacity:.4; }
+
+    footer { text-align:center; padding:14px; font-size:11px;
+             color:var(--muted); border-top:1px solid var(--border);
+             background:var(--white); margin-top:32px; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="brand">💧 Maji Mengi Analytics</div>
+  <a href="/">Dashboard</a>
+  <a href="/predict" class="active">Risk Predictor</a>
+  <div class="spacer"></div>
+  <span class="badge">BSIT/567J/2021</span>
+</nav>
+
+<div class="page">
+  <div class="page-title">💡 Water Point Risk Predictor</div>
+  <div class="page-sub">Enter the characteristics of a water point to predict its failure probability using the trained Random Forest model.</div>
+
+  <div class="layout">
+
+    <!-- INPUT FORM -->
+    <div class="form-card">
+      <h3>🔧 Water Point Details</h3>
+
+      <div class="field">
+        <label>Water Source Type</label>
+        <select id="iSourceType">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Location Type</label>
+        <select id="iLocType">
+          <option value="">Loading...</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Number of People Served</label>
+        <input type="number" id="iPeople" placeholder="e.g. 250" min="1" max="10000">
+        <div class="hint">How many people depend on this water point</div>
+      </div>
+
+      <div class="field">
+        <label>Queue Time (minutes)</label>
+        <input type="number" id="iQueue" placeholder="e.g. 45" min="0" max="600">
+        <div class="hint">Average waiting time observed at this water point</div>
+      </div>
+
+      <div class="field">
+        <label>Water Quality Score (1–10)</label>
+        <input type="number" id="iQuality" placeholder="e.g. 7" min="1" max="10">
+        <div class="hint">Subjective quality score: 1 = very poor, 10 = excellent</div>
+      </div>
+
+      <button class="submit-btn" id="predictBtn" onclick="runPrediction()">
+        🔍 Predict Failure Risk
+      </button>
+    </div>
+
+    <!-- RESULT PANEL -->
+    <div class="result-card" id="resultCard">
+      <h3>📊 Prediction Result</h3>
+      <div class="placeholder">
+        <div class="icon">🔍</div>
+        <div>Fill in the water point details and click <strong>Predict</strong> to see the risk assessment.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  Maji Mengi Water Analytics &nbsp;|&nbsp;
+  OLUOCH RECKY RACHEL · BSIT/567J/2021 · Technical University of Mombasa
+</footer>
+
+<script>
+  let probChart = null;
+
+  // Load dropdown options from API
+  async function loadOptions() {
+    const d = await fetch('/api/options').then(r=>r.json());
+
+    const st = document.getElementById('iSourceType');
+    st.innerHTML = '';
+    d.source_types.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t; o.textContent = t.replace(/_/g,' ');
+      st.appendChild(o);
+    });
+
+    const lt = document.getElementById('iLocType');
+    lt.innerHTML = '';
+    d.location_types.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t; o.textContent = t;
+      lt.appendChild(o);
+    });
+  }
+
+  async function runPrediction() {
+    const btn = document.getElementById('predictBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Predicting...';
+
+    const payload = {
+      source_type:   document.getElementById('iSourceType').value,
+      location_type: document.getElementById('iLocType').value,
+      people_served: document.getElementById('iPeople').value  || 100,
+      queue_time:    document.getElementById('iQueue').value   || 0,
+      quality_score: document.getElementById('iQuality').value || 5
+    };
+
+    try {
+      const res  = await fetch('/api/predict', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (data.error) throw new Error(data.error);
+      showResult(data);
+    } catch(e) {
+      document.getElementById('resultCard').innerHTML =
+        `<h3>📊 Prediction Result</h3>
+         <div style="color:#e74c3c;padding:20px;">Error: ${e.message}</div>`;
+    }
+
+    btn.disabled = false;
+    btn.textContent = '🔍 Predict Failure Risk';
+  }
+
+  function showResult(data) {
+    const card = document.getElementById('resultCard');
+    card.innerHTML = `
+      <h3>📊 Prediction Result</h3>
+
+      <div class="risk-display">
+        <div class="risk-label">Failure Probability</div>
+        <div class="risk-value" style="color:${data.risk_color}">${data.failure_probability}%</div>
+        <div class="risk-badge" style="background:${data.risk_color}">${data.risk_level}</div>
+      </div>
+
+      <div class="risk-advice" style="border-left-color:${data.risk_color}">
+        <strong>${data.risk_level}:</strong> ${data.advice}
+      </div>
+
+      <div>
+        <div style="font-size:12px;font-weight:bold;color:var(--muted);
+                    text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px;">
+          Probability Breakdown
+        </div>
+        <canvas id="probChart" style="max-height:160px;"></canvas>
+      </div>
+    `;
+
+    if (probChart) { probChart.destroy(); probChart = null; }
+    probChart = new Chart(document.getElementById('probChart'), {
+      type: 'bar',
+      data: {
+        labels: Object.keys(data.all_probs).map(l=>l.replace(/_/g,' ')),
+        datasets: [{
+          data: Object.values(data.all_probs),
+          backgroundColor: ['#27ae60','#e74c3c','#f39c12'],
+          borderRadius: 5
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        plugins: { legend: { display:false } },
+        scales: {
+          x: { beginAtZero:true, max:100,
+               title:{ display:true, text:'Probability (%)' } }
+        }
+      }
+    });
+  }
+
+  loadOptions();
+</script>
+</body>
+</html>
