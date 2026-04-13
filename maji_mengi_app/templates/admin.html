@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maji Mengi — Admin</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav>
+  <div class="brand">💧 Maji Mengi Analytics</div>
+  <a href="/">Dashboard</a>
+  <a href="predict.html">Risk Predictor</a>
+  <a href="admin.html" class="active">Admin</a>
+  <div class="spacer"></div>
+  <span class="badge">BSIT/567J/2021</span>
+</nav>
+
+<!-- LOGIN GATE -->
+<div id="loginGate">
+  <div class="lock">🔒</div>
+  <h2>Admin Access</h2>
+  <p>Enter the admin password to manage data and the prediction model.</p>
+  <input type="password" id="pwInput" placeholder="Enter password"
+         onkeydown="if(event.key==='Enter') doLogin()">
+  <button onclick="doLogin()">Unlock Admin Panel</button>
+  <div id="loginErr"></div>
+</div>
+
+<!-- ADMIN CONTENT (hidden until login) -->
+<div id="adminContent">
+  <div class="page">
+    <div class="page-title">⚙️ Admin Panel</div>
+    <div class="page-sub">Manage data uploads, monitor data health, and retrain the prediction model.</div>
+
+    <div class="grid">
+
+      <!-- DATA HEALTH CARD -->
+      <div class="card full">
+        <h3>📋 Current Dataset Health</h3>
+        <div id="healthStats">
+          <div style="color:var(--muted);font-size:13px;">Loading...</div>
+        </div>
+      </div>
+
+      <!-- UPLOAD CARD -->
+      <div class="card">
+        <h3>📤 Upload New Dataset</h3>
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()"
+             ondragover="event.preventDefault();this.classList.add('drag')"
+             ondragleave="this.classList.remove('drag')"
+             ondrop="handleDrop(event)">
+          <div class="icon">📁</div>
+          <p id="dropLabel">Click to select or drag & drop a CSV file</p>
+          <small>Must include: source_id, functionality_status,<br>
+                 type_of_water_source, number_of_people_served</small>
+        </div>
+        <input type="file" id="fileInput" accept=".csv" onchange="handleFileSelect(this)">
+        <button class="upload-btn" id="uploadBtn" onclick="uploadFile()" disabled>
+          Upload Dataset
+        </button>
+        <div class="result-box" id="uploadResult"></div>
+      </div>
+
+      <!-- RETRAIN CARD -->
+      <div class="card">
+        <h3>🤖 Retrain Prediction Model</h3>
+        <p class="retrain-info">
+          Click the button below to retrain the Random Forest model using the
+          current dataset. The model will be retrained from scratch and saved.
+          This may take 30–60 seconds depending on dataset size.
+        </p>
+        <br>
+        <button class="retrain-btn" id="retrainBtn" onclick="retrainModel()">
+          🔁 Retrain Model Now
+        </button>
+        <div class="result-box" id="retrainResult"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<footer>
+  Maji Mengi Water Analytics &nbsp;|&nbsp;
+  OLUOCH RECKY RACHEL · BSIT/567J/2021 · Technical University of Mombasa
+</footer>
+
+<script>
+  let authenticated = false;
+  let selectedFile  = null;
+
+  // ── Login ─────────────────────────────────────────────────────
+  async function doLogin() {
+    const pw  = document.getElementById('pwInput').value;
+    const err = document.getElementById('loginErr');
+    const res = await fetch('/api/admin/login', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ password: pw })
+    });
+    const data = await res.json();
+    if (data.success) {
+      authenticated = true;
+      document.getElementById('loginGate').style.display    = 'none';
+      document.getElementById('adminContent').style.display = 'block';
+      loadHealth();
+    } else {
+      err.textContent = '✗ Incorrect password. Try again.';
+      document.getElementById('pwInput').value = '';
+    }
+  }
+
+  // ── Data health ───────────────────────────────────────────────
+  async function loadHealth() {
+    const d = await fetch('/api/admin/health').then(r=>r.json());
+
+    const nullClass = d.null_pct < 5 ? 'good' : d.null_pct < 15 ? 'warn' : 'bad';
+
+    let nullRows = d.null_detail.map(n =>
+      `<tr>
+        <td>${n.column}</td>
+        <td>${n.nulls.toLocaleString()}</td>
+        <td><span style="color:${n.pct>20?'var(--red)':n.pct>10?'var(--orange)':'var(--green)'}">
+          ${n.pct}%</span></td>
+      </tr>`
+    ).join('');
+
+    document.getElementById('healthStats').innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+                  gap:12px;margin-bottom:18px;">
+        ${stat('Total Rows',    d.total_rows.toLocaleString(),  'blue')}
+        ${stat('Columns',       d.columns,                      'blue')}
+        ${stat('Provinces',     d.provinces,                    'blue')}
+        ${stat('Unique Sources',d.sources.toLocaleString(),     'blue')}
+        ${stat('Date From',     d.date_min,                     'blue')}
+        ${stat('Date To',       d.date_max,                     'blue')}
+        ${stat('Total Nulls',   d.total_nulls.toLocaleString(), nullClass)}
+        ${stat('Null Rate',     d.null_pct + '%',               nullClass)}
+      </div>
+      ${d.null_detail.length > 0 ? `
+        <div style="font-size:12px;font-weight:bold;color:var(--muted);
+                    text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;">
+          Columns with missing values
+        </div>
+        <table class="null-table">
+          <thead><tr><th>Column</th><th>Missing Count</th><th>% Missing</th></tr></thead>
+          <tbody>${nullRows}</tbody>
+        </table>` : `<div style="color:var(--green);font-size:13px;">
+          ✅ No missing values found in dataset.</div>`}
+    `;
+  }
+
+  function stat(label, value, cls) {
+    const colors = { blue:'var(--blue)', green:'var(--green)',
+                     warn:'var(--orange)', bad:'var(--red)', good:'var(--green)' };
+    return `<div style="background:var(--bg);border-radius:8px;padding:12px;">
+      <div style="font-size:18px;font-weight:bold;color:${colors[cls]||colors.blue}">
+        ${value}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px;
+                  text-transform:uppercase;letter-spacing:.3px">${label}</div>
+    </div>`;
+  }
+
+  // ── File handling ─────────────────────────────────────────────
+  function handleFileSelect(input) {
+    if (input.files[0]) setFile(input.files[0]);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    document.getElementById('dropZone').classList.remove('drag');
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  }
+
+  function setFile(file) {
+    selectedFile = file;
+    document.getElementById('dropLabel').textContent = `Selected: ${file.name}`;
+    document.getElementById('uploadBtn').disabled = false;
+  }
+
+  // ── Upload ────────────────────────────────────────────────────
+  async function uploadFile() {
+    if (!selectedFile) return;
+    const btn = document.getElementById('uploadBtn');
+    btn.disabled = true; btn.textContent = '⏳ Uploading...';
+
+    const form = new FormData();
+    form.append('file', selectedFile);
+
+    try {
+      const res  = await fetch('/api/admin/upload', { method:'POST', body:form });
+      const data = await res.json();
+      const box  = document.getElementById('uploadResult');
+
+      if (data.success) {
+        box.className = 'result-box success';
+        box.style.display = 'block';
+        box.innerHTML = `
+          <strong>✅ Upload successful!</strong><br>
+          File: ${data.filename}<br>
+          Rows loaded: ${data.rows.toLocaleString()}<br>
+          Columns: ${data.columns}<br>
+          <em>The live dashboard now reflects this new data.</em>`;
+        showToast('Dataset uploaded successfully!', 'success');
+        loadHealth();
+      } else {
+        box.className = 'result-box error';
+        box.style.display = 'block';
+        box.innerHTML = `<strong>✗ Upload failed:</strong> ${data.error}`;
+        showToast('Upload failed', 'error');
+      }
+    } catch(e) {
+      showToast('Network error: ' + e.message, 'error');
+    }
+
+    btn.disabled = false; btn.textContent = 'Upload Dataset';
+  }
+
+  // ── Retrain ───────────────────────────────────────────────────
+  async function retrainModel() {
+    const btn = document.getElementById('retrainBtn');
+    btn.disabled = true; btn.textContent = '⏳ Training... please wait';
+
+    try {
+      const res  = await fetch('/api/admin/retrain', { method:'POST' });
+      const data = await res.json();
+      const box  = document.getElementById('retrainResult');
+
+      if (data.success) {
+        box.className = 'result-box success';
+        box.style.display = 'block';
+        box.innerHTML = `
+          <strong>✅ Model retrained successfully!</strong><br>
+          Accuracy: <strong>${data.accuracy}%</strong><br>
+          Training records: ${data.training_rows.toLocaleString()}<br>
+          Testing records: ${data.testing_rows.toLocaleString()}<br>
+          <em>The Risk Predictor page now uses this updated model.</em>`;
+        showToast(`Model retrained — ${data.accuracy}% accuracy`, 'success');
+      } else {
+        box.className = 'result-box error';
+        box.style.display = 'block';
+        box.innerHTML = `<strong>✗ Retraining failed:</strong> ${data.error}`;
+        showToast('Retraining failed', 'error');
+      }
+    } catch(e) {
+      showToast('Network error: ' + e.message, 'error');
+    }
+
+    btn.disabled = false; btn.textContent = '🔁 Retrain Model Now';
+  }
+
+  // ── Toast notification ────────────────────────────────────────
+  function showToast(msg, type='success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.className = `toast ${type} show`;
+    setTimeout(() => t.classList.remove('show'), 3500);
+  }
+</script>
+</body>
+</html>

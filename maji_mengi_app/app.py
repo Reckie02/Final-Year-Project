@@ -220,3 +220,166 @@ def options():
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+    
+#=========================================================================
+ # ROuTeS
+#========================================================================= 
+    import os
+import io
+from werkzeug.utils import secure_filename
+
+ADMIN_PASSWORD = "majimengi2025"   # change this to anything you want
+UPLOAD_FOLDER  = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# ── Admin page ─────────────────────────────────────────────────
+@app.route('/admin')
+def admin_page():
+    return render_template('admin.html')
+
+# ── Auth check ─────────────────────────────────────────────────
+@app.route('/api/admin/login', methods=['POST'])
+def admin_login():
+    data = request.get_json()
+    if data.get('password') == ADMIN_PASSWORD:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'Incorrect password'}), 401
+
+# ── Data health stats ──────────────────────────────────────────
+@app.route('/api/admin/health')
+def data_health():
+    total_rows   = len(df)
+    null_counts  = df.isnull().sum()
+    total_nulls  = int(null_counts.sum())
+    date_min     = str(df['time_of_record'].min())[:10] if 'time_of_record' in df.columns else 'N/A'
+    date_max     = str(df['time_of_record'].max())[:10] if 'time_of_record' in df.columns else 'N/A'
+    provinces    = int(df['province_name'].nunique())
+    sources      = int(df['source_id'].nunique()) if 'source_id' in df.columns else 0
+
+    top_nulls = (null_counts[null_counts > 0]
+                 .sort_values(ascending=False)
+                 .head(6)
+                 .reset_index())
+    top_nulls.columns = ['column', 'nulls']
+    top_nulls['pct'] = (top_nulls['nulls'] / total_rows * 100).round(1)
+
+    return jsonify({
+        'total_rows':   total_rows,
+        'total_nulls':  total_nulls,
+        'null_pct':     round(total_nulls / (total_rows * len(df.columns)) * 100, 2),
+        'date_min':     date_min,
+        'date_max':     date_max,
+        'provinces':    provinces,
+        'sources':      sources,
+        'columns':      len(df.columns),
+        'null_detail':  top_nulls.to_dict(orient='records')
+    })
+
+# ── Upload new CSV ─────────────────────────────────────────────
+@app.route('/api/admin/upload', methods=['POST'])
+def upload_csv():
+    global df
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if not file.filename.endswith('.csv'):
+        return jsonify({'error': 'Only CSV files are accepted'}), 400
+
+    try:
+        content   = file.read()
+        new_df    = pd.read_csv(io.BytesIO(content))
+        row_count = len(new_df)
+        cols      = list(new_df.columns)
+
+        # Validate required columns exist
+        required = ['source_id', 'functionality_status',
+                    'type_of_water_source', 'number_of_people_served']
+        missing  = [c for c in required if c not in cols]
+        if missing:
+            return jsonify({
+                'error': f'Missing required columns: {missing}'
+            }), 400
+
+        # Save to disk and reload into memory
+        filename = secure_filename(file.filename)
+        saved_path = os.path.join(UPLOAD_FOLDER, filename)
+        with open(saved_path, 'wb') as f_out:
+            f_out.write(content)
+
+        new_df['time_of_record'] = pd.to_datetime(
+            new_df['time_of_record'], errors='coerce')
+        new_df['month'] = new_df['time_of_record'].dt.month_name()
+        new_df['hour']  = new_df['time_of_record'].dt.hour
+        df = new_df   # replace the global dataframe
+
+        # Also overwrite master_clean.csv
+        df.to_csv('master_clean.csv', index=False)
+
+        return jsonify({
+            'success':   True,
+            'rows':      row_count,
+            'columns':   len(cols),
+            'filename':  filename
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ── Retrain model on current data ─────────────────────────────
+@app.route('/api/admin/retrain', methods=['POST'])
+def retrain():
+    global model, enc
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.preprocessing import LabelEncoder
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import accuracy_score
+
+    try:
+        model_df = df[df['functionality_status'] != 'unknown'][[
+            'type_of_water_source', 'number_of_people_served',
+            'time_in_queue', 'subjective_quality_score',
+            'location_type', 'functionality_status'
+        ]].dropna().copy()
+
+        le_type   = LabelEncoder()
+        le_loc    = LabelEncoder()
+        le_status = LabelEncoder()
+
+        model_df['type_encoded']   = le_type.fit_transform(model_df['type_of_water_source'])
+        model_df['loc_encoded']    = le_loc.fit_transform(model_df['location_type'])
+        model_df['status_encoded'] = le_status.fit_transform(model_df['functionality_status'])
+
+        X = model_df[['type_encoded', 'number_of_people_served',
+                       'time_in_queue', 'subjective_quality_score', 'loc_encoded']]
+        y = model_df['status_encoded']
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y)
+
+        new_model = RandomForestClassifier(
+            n_estimators=100, max_depth=8,
+            random_state=42, class_weight='balanced')
+        new_model.fit(X_train, y_train)
+
+        acc = round(accuracy_score(y_test, new_model.predict(X_test)) * 100, 2)
+
+        # Save new model to disk
+        import pickle
+        with open('model.pkl', 'wb') as f:
+            pickle.dump(new_model, f)
+        with open('encoders.pkl', 'wb') as f:
+            pickle.dump({'le_type': le_type,
+                         'le_loc':  le_loc, 'le_status': le_status}, f)
+
+        model = new_model
+        enc   = {'le_type': le_type, 'le_loc': le_loc, 'le_status': le_status}
+
+        return jsonify({
+            'success':       True,
+            'accuracy':      acc,
+            'training_rows': len(X_train),
+            'testing_rows':  len(X_test)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
