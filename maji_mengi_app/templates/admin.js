@@ -1,5 +1,5 @@
-  let authenticated = True;
-  let selectedFile  = adminContent = document.getElementById('adminContent');
+  let authenticated = false;
+  let selectedFile  = null;
 
   // ── Login ─────────────────────────────────────────────────────
   async function doLogin() {
