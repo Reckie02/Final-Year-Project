@@ -7,6 +7,7 @@
       --text:   #1a202c; --muted: #718096;
       --border: #e2e8f0; --radius: 12px;
     }
+    
     * { margin:0; padding:0; box-sizing:border-box; }
     body { font-family:Arial,sans-serif; background:var(--bg);
            color:var(--text); font-size:14px; }

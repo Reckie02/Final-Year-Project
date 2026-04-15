@@ -4,15 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maji Mengi — Admin</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
 
   <nav>
   <div class="brand">💧 Maji Mengi Analytics</div>
   <a href="/">Dashboard</a>
-  <a href="predict.html">Risk Predictor</a>
-  <a href="admin.html" class="active">Admin</a>
+  <a href="/predict.html">Risk Predictor</a>
+  <a href="/admin.html" class="active">Admin</a>
   <div class="spacer"></div>
   <span class="badge">BSIT/567J/2021</span>
   </nav>
@@ -89,7 +89,7 @@
   OLUOCH RECKY RACHEL · BSIT/567J/2021 · Technical University of Mombasa
 </footer>
 
-<script src="admin.js"></script>
+<script src="/admin.js"></script>
 
 </body>
 </html>

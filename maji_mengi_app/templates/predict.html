@@ -5,15 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Maji Mengi — Risk Predictor</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
 
 <nav>
   <div class="brand">💧 Maji Mengi Analytics</div>
   <a href="/">Dashboard</a>
-  <a href="predict.html" class="active">Risk Predictor</a>
-  <a href="admin.html">Admin</a>
+  <a href="/predict.html" class="active">Risk Predictor</a>
+  <a href="'/admin.html">Admin</a>
   <div class="spacer"></div>
   <span class="badge">BSIT/567J/2021</span>
 </nav>
