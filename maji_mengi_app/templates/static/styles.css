@@ -1,4 +1,4 @@
-    :root {
+:root {
       --blue:   #1a5276; --blue-l: #2980b9;
       --green:  #1e8449; --green-l:#27ae60;
       --red:    #922b21; --red-l:  #e74c3c;
@@ -7,9 +7,13 @@
       --text:   #1a202c; --muted: #718096;
       --border: #e2e8f0; --radius: 12px;
     }
-    
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:Arial,sans-serif; background:var(--bg);
+
+    *{ 
+      margin:0; padding:0; 
+      box-sizing:border-box; 
+    }
+    body { 
+      font-family:Arial,sans-serif; background:var(--bg);
            color:var(--text); font-size:14px; }
 
     /* NAV */
