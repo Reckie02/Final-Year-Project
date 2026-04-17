@@ -14,6 +14,20 @@ df['month'] = df['time_of_record'].dt.month_name()
 df['hour']  = df['time_of_record'].dt.hour
 print(f"✅ Data loaded: {len(df):,} records")
 
+# ══════════════════════════════════════════════════════════════════
+#  CREATE FUNCTIONALITY STATUS COLUMN
+# ══════════════════════════════════════════════════════════════════
+def assign_functionality(row):
+    if row['subjective_quality_score'] >= 3 and row['results'] !='Contaminated: Biological':
+        return 'functional'
+    elif row['subjective_quality_score'] == 2:
+        return 'partially_functional'
+    else:
+        return 'non_functional'
+    
+df['functionality_status'] = df.apply(assign_functionality, axis=1)   
+ 
+
 # ── Load model ─────────────────────────────────────────────────────
 with open('model.pkl', 'rb') as f:
     model = pickle.load(f)
@@ -33,6 +47,18 @@ def dashboard():
 def predict_page():
     return render_template('predict.html')
 
+@app.route('/admin')
+def admin():
+    return render_template('admin.html')
+
+@app.route('/api/admin/login', methods=['POST'])
+def admin_login():
+    # Placeholder for admin login logic
+    data = request.get_json()
+    password = data.get('password')
+    if password == "majimengi2025":  # Replace with secure check in production
+        return jsonify({'success': True})
+    return jsonify({'success': False}), 401
 
 # ══════════════════════════════════════════════════════════════════
 #  HELPER
@@ -68,6 +94,7 @@ def summary():
         request.args.get('hour','All')
     )
     total      = len(filtered)
+    print("columns:",filtered.columns.tolist())
     func       = (filtered['functionality_status'] == 'functional').sum()
     non_func   = (filtered['functionality_status'] == 'non_functional').sum()
     partial    = (filtered['functionality_status'] == 'partially_functional').sum()
