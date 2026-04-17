@@ -8,6 +8,9 @@ import os
 app = Flask(__name__)
 CORS(app)
 
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 # ── Load data ──────────────────────────────────────────────────────
 df = pd.read_csv('master_clean.csv')
 df['time_of_record'] = pd.to_datetime(df['time_of_record'], errors='coerce')
