@@ -4,17 +4,33 @@ import pandas as pd
 import pickle
 import numpy as np
 import os
+import io
+from werkzeug.utils import secure_filename
+from werkzeug.exceptions import HTTPException
 
 app = Flask(__name__)
 CORS(app)
 
 UPLOAD_FOLDER = "uploads"
+ADMIN_PASSWORD = "majimengi2025"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+@app.errorhandler(Exception)
+def handle_api_errors(error):
+    if request.path.startswith('/api/'):
+        if isinstance(error, HTTPException):
+            return jsonify({'success': False, 'error': error.description}), error.code
+        return jsonify({'success': False, 'error': str(error)}), 500
+    if isinstance(error, HTTPException):
+        return error
+    return str(error), 500
 
 # ── Load data ──────────────────────────────────────────────────────
 df = pd.read_csv('master_clean.csv')
 df['time_of_record'] = pd.to_datetime(df['time_of_record'], errors='coerce')
 df['month'] = df['time_of_record'].dt.month_name()
+df['year'] = df['time_of_record'].dt.year
 df['hour']  = df['time_of_record'].dt.hour
 print(f"✅ Data loaded: {len(df):,} records")
 
@@ -55,22 +71,15 @@ def predict_page():
 def admin():
     return render_template('admin.html')
 
-@app.route('/api/admin/login', methods=['POST'])
-def admin_login():
-    # Placeholder for admin login logic
-    data = request.get_json()
-    password = data.get('password')
-    if password == "majimengi2025":  # Replace with secure check in production
-        return jsonify({'success': True})
-    return jsonify({'success': False}), 401
-
 # ══════════════════════════════════════════════════════════════════
 #  HELPER
 # ══════════════════════════════════════════════════════════════════
-def apply_filters(province='All', month='All', hour='All'):
+def apply_filters(province='All', year='All', month='All', hour='All'):
     out = df.copy()
     if province != 'All':
         out = out[out['province_name'] == province]
+    if year != 'All':
+        out = out[out['year'] == int(year)]
     if month != 'All':
         out = out[out['month'] == month]
     if hour != 'All':
@@ -84,16 +93,18 @@ def apply_filters(province='All', month='All', hour='All'):
 @app.route('/api/filters')
 def get_filters():
     provinces = sorted(df['province_name'].dropna().unique().tolist())
+    years = sorted(df['year'].dropna().astype(int).unique().tolist())
     months_order = ['January','February','March','April','May','June',
                     'July','August','September','October','November','December']
     months = [m for m in months_order if m in df['month'].unique()]
-    return jsonify({'provinces': provinces, 'months': months})
+    return jsonify({'provinces': provinces, 'years': years, 'months': months})
 
 
 @app.route('/api/summary')
 def summary():
     filtered = apply_filters(
         request.args.get('province','All'),
+        request.args.get('year','All'),
         request.args.get('month','All'),
         request.args.get('hour','All')
     )
@@ -121,7 +132,9 @@ def summary():
 def status_breakdown():
     filtered = apply_filters(
         request.args.get('province','All'),
-        request.args.get('month','All')
+        request.args.get('year','All'),
+        request.args.get('month','All'),
+        request.args.get('hour','All')
     )
     return jsonify(filtered['functionality_status'].value_counts().to_dict())
 
@@ -130,7 +143,9 @@ def status_breakdown():
 def source_types():
     filtered = apply_filters(
         request.args.get('province','All'),
-        request.args.get('month','All')
+        request.args.get('year','All'),
+        request.args.get('month','All'),
+        request.args.get('hour','All')
     )
     return jsonify(filtered['type_of_water_source'].value_counts().to_dict())
 
@@ -145,11 +160,24 @@ def queue_by_hour():
         'queues': hourly['time_in_queue'].tolist()
     })
 
-
 @app.route('/api/province_comparison')
 def province_comparison():
-    filtered = apply_filters(month=request.args.get('month','All'))
+    filtered = apply_filters(year=request.args.get('year','All'))
     result = (filtered.groupby('province_name').agg(
+        avg_queue     =('time_in_queue',        'mean'),
+        non_func_count=('functionality_status', lambda x: (x=='non_functional').sum()),
+        total         =('functionality_status', 'count'),
+        people_served =('number_of_people_served','sum')
+    ).reset_index())
+    result['non_func_pct'] = (result['non_func_count']/result['total']*100).round(1)
+    result['avg_queue']    = result['avg_queue'].round(1)
+    result['people_served']= result['people_served'].astype(int)
+    return jsonify(result.to_dict(orient='records'))
+
+@app.route('/api/trend_by_year')
+def trend_by_year():
+    filtered = apply_filters(year=request.args.get('year','All'))
+    result = (filtered.groupby('year').agg(
         avg_queue     =('time_in_queue',        'mean'),
         non_func_count=('functionality_status', lambda x: (x=='non_functional').sum()),
         total         =('functionality_status', 'count'),
@@ -247,27 +275,11 @@ def options():
         'source_types':   list(enc['le_type'].classes_),
         'location_types': list(enc['le_loc'].classes_)
     })
-
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
-    
 #=========================================================================
- # ROuTeS
-#========================================================================= 
-    import os
-import io
-from werkzeug.utils import secure_filename
-
-ADMIN_PASSWORD = "majimengi2025"   # change this to anything you want
-UPLOAD_FOLDER  = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# ROUTES
+#=========================================================================
 
 # ── Admin page ─────────────────────────────────────────────────
-@app.route('/admin')
-def admin_page():
-    return render_template('admin.html')
-
 # ── Auth check ─────────────────────────────────────────────────
 @app.route('/api/admin/login', methods=['POST'])
 def admin_login():
@@ -357,6 +369,15 @@ def upload_csv():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+
+
+
+
+
+
+
+
 # ── Retrain model on current data ─────────────────────────────
 @app.route('/api/admin/retrain', methods=['POST'])
 def retrain():
@@ -414,3 +435,7 @@ def retrain():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)
