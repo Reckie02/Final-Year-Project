@@ -196,6 +196,21 @@
     <div class="chart-title">📅 Monthly Trend — Non-Functional Rate & Queue Time</div>
     <canvas id="chartTrend" style="max-height:220px;"></canvas>
   </div>
+
+  <div class="chart-box">
+  <div class="chart-title">🔬 Avg Factors by Functionality Status</div>
+  <canvas id="chartFactors"></canvas>
+</div>
+
+<div class="chart-box">
+  <div class="chart-title">🚰 Source Type vs Functionality (%)</div>
+  <canvas id="chartSourceStatus"></canvas>
+</div>
+
+<div class="chart-box">
+  <div class="chart-title">🧪 Well Pollution vs Non-Functional Rate</div>
+  <canvas id="chartPollution"></canvas>
+</div>
 </div>
 
 <footer>
@@ -354,9 +369,114 @@
   async function updateAll() {
     await Promise.all([
       updateCards(), updateStatus(), updateSource(),
-      updateHour(),  updateProvince(), updateTrend()
+      updateHour(),  updateProvince(), updateTrend(),
+      updateFactors(),updateSourceStatus(),updatePollution()
     ]);
   }
+
+    // ── Factor comparison grouped bar ────────────────────────────
+async function updateFactors() {
+  const d = await apiFetch('/api/factor_comparison' +
+    qs({ province: q().province, month: q().month }));
+
+  kill('factors');
+  C.factors = new Chart(document.getElementById('chartFactors'), {
+    type: 'bar',
+    data: {
+      labels: d.map(x => x.functionality_status.replace(/_/g, ' ')),
+      datasets: [
+        {
+          label: 'Avg Queue (min)',
+          data: d.map(x => x.avg_queue),
+          backgroundColor: '#e74c3c', borderRadius: 4, yAxisID: 'y'
+        },
+        {
+          label: 'Avg Quality Score',
+          data: d.map(x => x.avg_quality),
+          backgroundColor: '#2980b9', borderRadius: 4, yAxisID: 'y1'
+        },
+        {
+          label: 'Avg People Served',
+          data: d.map(x => x.avg_people),
+          backgroundColor: '#27ae60', borderRadius: 4, yAxisID: 'y'
+        }
+      ]
+    },
+    options: {
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        y:  { beginAtZero: true, position: 'left',
+               title: { display: true, text: 'Queue (min) / People' } },
+        y1: { beginAtZero: true, position: 'right',
+               title: { display: true, text: 'Quality Score' },
+               grid: { drawOnChartArea: false } }
+      }
+    }
+  });
+}
+
+// ── Source type vs status stacked bar ────────────────────────
+async function updateSourceStatus() {
+  const d = await apiFetch('/api/source_vs_status' +
+    qs({ province: q().province, month: q().month }));
+
+  const labels   = d.map(x => x.type_of_water_source.replace(/_/g, ' '));
+  const statuses = ['functional', 'non_functional', 'partially_functional'];
+  const colors   = ['#27ae60', '#e74c3c', '#f39c12'];
+
+  kill('sourceStatus');
+  C.sourceStatus = new Chart(document.getElementById('chartSourceStatus'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: statuses.map((s, i) => ({
+        label:           s.replace(/_/g, ' '),
+        data:            d.map(x => x[s] ?? 0),
+        backgroundColor: colors[i],
+        borderRadius:    3
+      }))
+    },
+    options: {
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        x: { stacked: true },
+        y: { stacked: true, beginAtZero: true,
+             title: { display: true, text: 'Percentage (%)' } }
+      }
+    }
+  });
+}
+
+// ── Pollution vs non-functional rate ────────────────────────
+async function updatePollution() {
+  const d = await apiFetch('/api/pollution_vs_status' +
+    qs({ province: q().province }));
+
+  kill('pollution');
+  C.pollution = new Chart(document.getElementById('chartPollution'), {
+    type: 'bar',
+    data: {
+      labels: d.map(x => x.results),
+      datasets: [{
+        label:           'Non-Functional Rate (%)',
+        data:            d.map(x => x.non_func_pct),
+        backgroundColor: d.map(x =>
+          x.non_func_pct > 66 ? '#e74c3c' :
+          x.non_func_pct > 33 ? '#f39c12' : '#27ae60'
+        ),
+        borderRadius: 5
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, max: 100,
+             title: { display: true, text: 'Non-Functional Rate (%)' } },
+        x: { title: { display: true, text: 'Pollution Result' } }
+      }
+    }
+  });
+}
 
   (async () => { await loadFilters(); await updateAll(); })();
 </script>

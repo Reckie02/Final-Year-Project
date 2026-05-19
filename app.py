@@ -1,10 +1,14 @@
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, send_file
 from flask_cors import CORS
 import pandas as pd
 import pickle
 import numpy as np
 import os
 import io
+import json
+import shutil
+import uuid
+from datetime import datetime
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import HTTPException
 
@@ -12,8 +16,12 @@ app = Flask(__name__)
 CORS(app)
 
 UPLOAD_FOLDER = "uploads"
+BACKUP_FOLDER = os.path.join(UPLOAD_FOLDER, "backups")
+DATASET_PATH = "master_clean.csv"
+UPLOAD_STATE_PATH = os.path.join(UPLOAD_FOLDER, "upload_state.json")
 ADMIN_PASSWORD = "majimengi2025"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(BACKUP_FOLDER, exist_ok=True)
 
 
 @app.errorhandler(Exception)
@@ -27,12 +35,94 @@ def handle_api_errors(error):
     return str(error), 500
 
 # ── Load data ──────────────────────────────────────────────────────
-df = pd.read_csv('master_clean.csv')
-df['time_of_record'] = pd.to_datetime(df['time_of_record'], errors='coerce')
-df['month'] = df['time_of_record'].dt.month_name()
-df['year'] = df['time_of_record'].dt.year
-df['hour']  = df['time_of_record'].dt.hour
-print(f"✅ Data loaded: {len(df):,} records")
+def read_upload_state():
+    if not os.path.exists(UPLOAD_STATE_PATH):
+        return {}
+    with open(UPLOAD_STATE_PATH, 'r', encoding='utf-8') as f_in:
+        return json.load(f_in)
+
+
+def write_upload_state(state):
+    with open(UPLOAD_STATE_PATH, 'w', encoding='utf-8') as f_out:
+        json.dump(state, f_out, indent=2)
+
+
+def clear_upload_state():
+    if os.path.exists(UPLOAD_STATE_PATH):
+        os.remove(UPLOAD_STATE_PATH)
+
+
+def same_file_path(path_a, path_b):
+    if not path_a or not path_b:
+        return False
+    return os.path.abspath(path_a) == os.path.abspath(path_b)
+
+
+def delete_if_exists(path):
+    if not path or not os.path.exists(path):
+        return True
+    try:
+        os.remove(path)
+        return True
+    except OSError as error:
+        print(f"Could not delete {path}: {error}")
+        return False
+
+
+def add_functionality_status(dataframe):
+    if {'subjective_quality_score', 'results'}.issubset(dataframe.columns):
+        dataframe = dataframe.copy()
+        def status_for_row(row):
+            if row['subjective_quality_score'] >= 3 and row['results'] != 'Contaminated: Biological':
+                return 'functional'
+            if row['subjective_quality_score'] == 2:
+                return 'partially_functional'
+            return 'non_functional'
+
+        dataframe['functionality_status'] = dataframe.apply(status_for_row, axis=1)
+    return dataframe
+
+
+def apply_dataset_transforms(dataframe):
+    dataframe = dataframe.copy()
+    if 'time_of_record' in dataframe.columns:
+        dataframe['time_of_record'] = pd.to_datetime(
+            dataframe['time_of_record'], errors='coerce')
+        dataframe['month'] = dataframe['time_of_record'].dt.month_name()
+        dataframe['year'] = dataframe['time_of_record'].dt.year
+        dataframe['hour'] = dataframe['time_of_record'].dt.hour
+    dataframe = add_functionality_status(dataframe)
+    return dataframe
+
+
+def load_dataset(path=DATASET_PATH):
+    dataframe = pd.read_csv(path)
+    dataframe = apply_dataset_transforms(dataframe)
+    print(f"✅ Data loaded: {len(dataframe):,} records from {path}")
+    return dataframe
+
+
+def load_dataset_into_memory(path=DATASET_PATH):
+    global df
+    df = load_dataset(path)
+    return df
+
+
+def dataset_status():
+    state = read_upload_state()
+    active_upload = state.get('active_upload')
+    backup_file = state.get('backup_file')
+    has_uploaded_dataset = bool(active_upload and os.path.exists(active_upload))
+    can_restore = bool(backup_file and os.path.exists(backup_file))
+    return {
+        'has_uploaded_dataset': has_uploaded_dataset,
+        'active_filename': os.path.basename(active_upload) if has_uploaded_dataset else None,
+        'uploaded_at': state.get('uploaded_at'),
+        'can_restore': can_restore
+    }
+
+
+df = load_dataset()
 
 # ══════════════════════════════════════════════════════════════════
 #  CREATE FUNCTIONALITY STATUS COLUMN
@@ -45,7 +135,7 @@ def assign_functionality(row):
     else:
         return 'non_functional'
     
-df['functionality_status'] = df.apply(assign_functionality, axis=1)   
+df = add_functionality_status(df)
  
 
 # ── Load model ─────────────────────────────────────────────────────
@@ -209,6 +299,58 @@ def trend_by_month():
     trend = trend.sort_values('month_order').drop('month_order', axis=1)
     return jsonify(trend.to_dict(orient='records'))
 
+# ── Factor comparison by status ────────────────────────────────
+@app.route('/api/factor_comparison')
+def factor_comparison():
+    province = request.args.get('province', 'All')
+    month    = request.args.get('month', 'All')
+    filtered = apply_filters(province=province, month=month)
+
+    result = filtered.groupby('functionality_status').agg(
+        avg_queue   =('time_in_queue',            'mean'),
+        avg_people  =('number_of_people_served',  'mean'),
+        avg_quality =('subjective_quality_score', 'mean'),
+        count       =('functionality_status',     'count')
+    ).round(2).reset_index()
+
+    return jsonify(result.to_dict(orient='records'))
+
+
+# ── Source type vs functionality ───────────────────────────────
+@app.route('/api/source_vs_status')
+def source_vs_status():
+    province = request.args.get('province', 'All')
+    month    = request.args.get('month', 'All')
+    filtered = apply_filters(province=province, month=month)
+
+    cross = pd.crosstab(
+        filtered['type_of_water_source'],
+        filtered['functionality_status'],
+        normalize='index'
+    ).round(3) * 100
+
+    cross = cross.reset_index()
+    return jsonify(cross.to_dict(orient='records'))
+
+
+# ── Pollution vs functionality (wells only) ────────────────────
+@app.route('/api/pollution_vs_status')
+def pollution_vs_status():
+    province = request.args.get('province', 'All')
+    filtered = apply_filters(province=province)
+
+    wells = filtered[filtered['type_of_water_source'] == 'well'].copy()
+    wells = wells[wells['results'].notna()]
+
+    result = wells.groupby('results').agg(
+        non_functional =('functionality_status',
+                          lambda x: (x == 'non_functional').sum()),
+        total          =('functionality_status', 'count')
+    ).reset_index()
+    result['non_func_pct'] = (result['non_functional'] /
+                               result['total'] * 100).round(1)
+
+    return jsonify(result.to_dict(orient='records'))
 
 # ══════════════════════════════════════════════════════════════════
 #  PREDICTION API
@@ -318,6 +460,24 @@ def data_health():
         'null_detail':  top_nulls.to_dict(orient='records')
     })
 
+
+@app.route('/api/admin/upload-status')
+def upload_status():
+    return jsonify(dataset_status())
+
+
+@app.route('/api/admin/download-original-dataset')
+def download_original_dataset():
+    if not os.path.exists(DATASET_PATH):
+        return jsonify({'error': 'Original dataset file was not found.'}), 404
+
+    return send_file(
+        DATASET_PATH,
+        as_attachment=True,
+        download_name='master_clean_original.csv',
+        mimetype='text/csv'
+    )
+
 # ── Upload new CSV ─────────────────────────────────────────────
 @app.route('/api/admin/upload', methods=['POST'])
 def upload_csv():
@@ -345,37 +505,72 @@ def upload_csv():
                 'error': f'Missing required columns: {missing}'
             }), 400
 
+        state = read_upload_state()
+        previous_upload = state.get('active_upload')
+        previous_backup = state.get('backup_file')
+        backup_name = (
+            f"master_clean_backup_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}_"
+            f"{uuid.uuid4().hex[:8]}.csv"
+        )
+        backup_path = os.path.join(BACKUP_FOLDER, backup_name)
+        shutil.copyfile(DATASET_PATH, backup_path)
+        if previous_backup and not same_file_path(previous_backup, backup_path):
+            delete_if_exists(previous_backup)
+
         # Save to disk and reload into memory
         filename = secure_filename(file.filename)
         saved_path = os.path.join(UPLOAD_FOLDER, filename)
         with open(saved_path, 'wb') as f_out:
             f_out.write(content)
 
-        new_df['time_of_record'] = pd.to_datetime(
-            new_df['time_of_record'], errors='coerce')
-        new_df['month'] = new_df['time_of_record'].dt.month_name()
-        new_df['hour']  = new_df['time_of_record'].dt.hour
+        new_df = apply_dataset_transforms(new_df)
         df = new_df   # replace the global dataframe
 
         # Also overwrite master_clean.csv
-        df.to_csv('master_clean.csv', index=False)
+        df.to_csv(DATASET_PATH, index=False)
+
+        if previous_upload and not same_file_path(previous_upload, saved_path):
+            delete_if_exists(previous_upload)
+
+        write_upload_state({
+            'active_upload': saved_path,
+            'backup_file': backup_path,
+            'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+        })
 
         return jsonify({
             'success':   True,
             'rows':      row_count,
             'columns':   len(cols),
-            'filename':  filename
+            'filename':  filename,
+            'status':    dataset_status()
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/admin/restore-dataset', methods=['POST'])
+def restore_dataset():
+    state = read_upload_state()
+    backup_file = state.get('backup_file')
+    active_upload = state.get('active_upload')
 
+    if not backup_file or not os.path.exists(backup_file):
+        return jsonify({'error': 'No restorable dataset backup was found.'}), 400
 
+    shutil.copyfile(backup_file, DATASET_PATH)
+    load_dataset_into_memory(DATASET_PATH)
 
+    delete_if_exists(active_upload)
+    backup_deleted = delete_if_exists(backup_file)
+    clear_upload_state()
 
-
-
+    return jsonify({
+        'success': True,
+        'message': 'Previous dataset restored successfully.',
+        'warning': None if backup_deleted else 'The dataset was restored, but Windows would not delete the old backup file.',
+        'status': dataset_status()
+    })
 
 
 # ── Retrain model on current data ─────────────────────────────

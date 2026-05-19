@@ -90,6 +90,23 @@
     .upload-btn:hover    { background:var(--blue-l); }
     .upload-btn:disabled { opacity:.5; cursor:not-allowed; }
 
+    .secondary-btn { display:block; width:100%; margin-top:14px; padding:10px;
+                     background:#fff; color:var(--red); border:1px solid #f5b7b1;
+                     border-radius:8px; font-size:13px; font-weight:bold;
+                     cursor:pointer; transition:.2s; }
+    .secondary-btn:hover { background:#fdedec; }
+    .secondary-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    .download-btn { display:block; width:100%; margin-top:14px; padding:10px;
+                    background:#fff; color:var(--blue); border:1px solid #aed6f1;
+                    border-radius:8px; font-size:13px; font-weight:bold;
+                    cursor:pointer; transition:.2s; text-align:center;
+                    text-decoration:none; }
+    .download-btn:hover { background:#ebf5fb; }
+
+    .status-panel { background:var(--bg); border-radius:10px; padding:14px; }
+    .status-panel p { color:var(--muted); font-size:12px; line-height:1.6; }
+
     /* Retrain */
     .retrain-btn { width:100%; padding:12px; background:#1e8449; color:#fff;
                    border:none; border-radius:8px; font-size:14px;
@@ -176,6 +193,20 @@
         <div class="result-box" id="uploadResult"></div>
       </div>
 
+      <div class="card">
+        <h3>🗂️ Dataset Controls</h3>
+        <div class="status-panel" id="datasetStatus">
+          <p>Checking dataset status...</p>
+        </div>
+        <button class="secondary-btn" id="restoreBtn" onclick="restoreDataset()" disabled>
+          Restore Previous Dataset
+        </button>
+        <a class="download-btn" href="/api/admin/download-original-dataset">
+          Download Original Dataset
+        </a>
+        <div class="result-box" id="restoreResult"></div>
+      </div>
+
       <!-- RETRAIN CARD -->
       <div class="card">
         <h3>🤖 Retrain Prediction Model</h3>
@@ -237,6 +268,7 @@
       document.getElementById('loginGate').style.display    = 'none';
       document.getElementById('adminContent').style.display = 'block';
       loadHealth();
+      loadDatasetStatus();
     } else {
       err.textContent = '✗ Incorrect password. Try again.';
       document.getElementById('pwInput').value = '';
@@ -294,6 +326,26 @@
     </div>`;
   }
 
+  async function loadDatasetStatus() {
+    const status = await apiFetch('/api/admin/upload-status');
+    const box = document.getElementById('datasetStatus');
+    const restoreBtn = document.getElementById('restoreBtn');
+
+    if (status.has_uploaded_dataset) {
+      box.innerHTML = `
+        <p><strong>Active uploaded dataset:</strong> ${status.active_filename}</p>
+        <p>This file is currently driving the dashboard. Restoring will switch back to the previous dataset and remove this uploaded CSV.</p>
+      `;
+    } else {
+      box.innerHTML = `
+        <p><strong>Active uploaded dataset:</strong> None</p>
+        <p>The app is currently using the baseline dataset on disk.</p>
+      `;
+    }
+
+    restoreBtn.disabled = !status.can_restore;
+  }
+
   // ── File handling ─────────────────────────────────────────────
   function handleFileSelect(input) {
     if (input.files[0]) setFile(input.files[0]);
@@ -335,6 +387,10 @@
           <em>The live dashboard now reflects this new data.</em>`;
         showToast('Dataset uploaded successfully!', 'success');
         loadHealth();
+        loadDatasetStatus();
+        selectedFile = null;
+        document.getElementById('fileInput').value = '';
+        document.getElementById('dropLabel').textContent = 'Click to select or drag & drop a CSV file';
       } else {
         box.className = 'result-box error';
         box.style.display = 'block';
@@ -342,10 +398,39 @@
         showToast('Upload failed', 'error');
       }
     } catch(e) {
-      showToast('Network error: ' + e.message, 'error');
+      const box = document.getElementById('uploadResult');
+      box.className = 'result-box error';
+      box.style.display = 'block';
+      box.innerHTML = `<strong>Upload failed:</strong> ${e.message}`;
+      showToast('Upload failed', 'error');
     }
 
     btn.disabled = false; btn.textContent = 'Upload Dataset';
+  }
+
+  async function restoreDataset() {
+    const btn = document.getElementById('restoreBtn');
+    const box = document.getElementById('restoreResult');
+    btn.disabled = true;
+    btn.textContent = 'Restoring...';
+
+    try {
+      const data = await apiFetch('/api/admin/restore-dataset', { method:'POST' });
+      box.className = 'result-box success';
+      box.style.display = 'block';
+      box.innerHTML = `<strong>✅ Dataset restored.</strong><br>${data.message}`;
+      showToast('Previous dataset restored successfully!', 'success');
+      loadHealth();
+      loadDatasetStatus();
+    } catch(e) {
+      box.className = 'result-box error';
+      box.style.display = 'block';
+      box.innerHTML = `<strong>✗ Restore failed:</strong> ${e.message}`;
+      showToast('Restore failed', 'error');
+      loadDatasetStatus();
+    }
+
+    btn.textContent = 'Restore Previous Dataset';
   }
 
   // ── Retrain ───────────────────────────────────────────────────
